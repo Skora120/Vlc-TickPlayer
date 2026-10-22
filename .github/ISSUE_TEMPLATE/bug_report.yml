@@ -1,0 +1,47 @@
+name: Bug report
+description: Something doesn't work as described in the README
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: tickplayer
+    attributes:
+      label: TickPlayer version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: vlc
+    attributes:
+      label: VLC version and bitness
+      description: In VLC, Help > About. The installer name or folder tells 64- or 32-bit.
+      placeholder: "3.0.21, 64-bit"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 23H2"
+    validations:
+      required: true
+  - type: dropdown
+    id: start
+    attributes:
+      label: How is TickPlayer turned on?
+      options:
+        - Automatically with VLC
+        - From View > TickPlayer
+        - Not sure
+  - type: textarea
+    id: log
+    attributes:
+      label: helper.log
+      description: Paste or attach %LOCALAPPDATA%\TickPlayer\helper.log (from right after the problem).
+      render: text

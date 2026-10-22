@@ -1,5 +1,7 @@
 # TickPlayer
 
+[![Build](https://github.com/Skora120/Vlc-TickPlayer/actions/workflows/build.yml/badge.svg)](https://github.com/Skora120/Vlc-TickPlayer/actions/workflows/build.yml)
+
 **Seekbar thumbnail previews for VLC media player on Windows.** Hover over the
 seek bar and see that moment of the video, like on YouTube.
 
@@ -23,7 +25,7 @@ seek bar and see that moment of the video, like on YouTube.
 ## Install
 
 1. Download `TickPlayer-<version>.zip` from the
-   [Releases](https://github.com/Skora120/TickPlayer/releases) page.
+   [Releases](https://github.com/Skora120/Vlc-TickPlayer/releases) page.
 2. Extract the zip.
 3. Close VLC and double-click **`install.cmd`**. It asks whether TickPlayer
    should start automatically with VLC; press **Y** (the default).
@@ -79,7 +81,7 @@ and `modules\tickplayer_core.lua`, plus the folder `%LOCALAPPDATA%\TickPlayer`.
 | SmartScreen or antivirus warning | The helper is not code-signed. `install.cmd` removes the "downloaded from the internet" mark. You can also build it yourself (see below). |
 | TickPlayer appears twice in the View menu | Another `tickplayer.lua` exists in VLC's program folder (`C:\Program Files\VideoLAN\VLC\lua\extensions`). Delete one of them. |
 
-Found a bug? [Open an issue](https://github.com/Skora120/TickPlayer/issues)
+Found a bug? [Open an issue](https://github.com/Skora120/Vlc-TickPlayer/issues)
 and attach `%LOCALAPPDATA%\TickPlayer\helper.log`.
 
 ## How it works
@@ -144,14 +146,37 @@ helper\bin\x64\Release\TickPlayerHelper.exe --test-thumbnails "C:\Program Files\
 ```
 
 It saves 20 frames and the timings to `thumbtest\report.txt`.
+`scripts\test-release.ps1 -Release dist\TickPlayer-<version>` runs the same
+check against a built release.
+
+### Continuous integration
+
+Every push and pull request runs [`.github/workflows/build.yml`](.github/workflows/build.yml):
+
+1. **build**: builds both helpers and the release zip.
+2. **test**: on clean Windows machines with stock 64-bit and 32-bit VLC,
+   `scripts\test-release.ps1 -Install` checks that libVLC produces
+   thumbnails, that `install.cmd` installs and turns on auto-start, that a
+   headless VLC starts the helper through the auto-start script, and that
+   `uninstall.cmd` removes everything.
+3. **release** (tags only): publishes a GitHub release with the zip, a
+   `SHA256SUMS.txt` file and the version's notes from `CHANGELOG.md`.
 
 ### Releasing
 
 1. Update the version in `helper/TickPlayerHelper.csproj` and
-   `lua/extensions/tickplayer.lua` (the build fails if they differ), and add
-   an entry to `CHANGELOG.md`.
-2. Push a tag such as `v1.0.1`. GitHub Actions builds the zip and publishes
-   the release.
+   `lua/extensions/tickplayer.lua` (the build fails if they differ).
+2. In `CHANGELOG.md`, give the version a heading like `## 1.0.1 - 2026-11-02`
+   and list the changes under it.
+3. Commit, then tag and push:
+
+   ```powershell
+   git tag v1.0.1
+   git push origin main v1.0.1
+   ```
+
+   The workflow tests the build and publishes the release. A tag with a
+   suffix, such as `v1.1.0-beta.1`, becomes a pre-release.
 
 ### Layout
 
@@ -160,8 +185,9 @@ lua/extensions/tickplayer.lua     View > TickPlayer menu item
 lua/intf/tickplayer.lua           auto-start interface script
 lua/modules/tickplayer_core.lua   code shared by both
 helper/                           TickPlayerHelper (C#, .NET Framework 4.8)
-scripts/                          build, install, uninstall, auto-start settings
-.github/workflows/                CI build and release
+scripts/                          build, test, install, uninstall, auto-start settings
+tests/sample.mp4                  60-second clip used by the tests
+.github/                          CI workflow, Dependabot, issue template
 ```
 
 The `lua` folder mirrors VLC's own, and the release zip has the same layout.

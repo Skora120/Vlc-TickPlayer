@@ -1,6 +1,6 @@
 --[[
   TickPlayer - seekbar thumbnail previews for VLC media player (Windows)
-  https://github.com/Skora120/TickPlayer
+  https://github.com/Skora120/Vlc-TickPlayer
 
   Hover over VLC's seek bar to see a thumbnail of that moment, like on
   YouTube.
@@ -28,7 +28,7 @@ function descriptor()
         title = "TickPlayer",
         version = VERSION,
         author = "Skora120",
-        url = "https://github.com/Skora120/TickPlayer",
+        url = "https://github.com/Skora120/Vlc-TickPlayer",
         shortdesc = "TickPlayer", -- the text shown in the View menu
         description = "Shows a thumbnail of the video when you hover over the seek bar, "
             .. "like on YouTube. Windows only.",
