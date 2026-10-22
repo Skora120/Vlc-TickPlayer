@@ -29,6 +29,8 @@ internal sealed class PreviewWindow : Form
         _ = Handle; // create the window now, hidden
     }
 
+    public bool IsShown => _shown;
+
     protected override bool ShowWithoutActivation => true;
 
     protected override CreateParams CreateParams

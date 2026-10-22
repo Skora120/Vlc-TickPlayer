@@ -38,7 +38,8 @@ internal static class Program
 
         try
         {
-            return Run(sessionPath);
+            // --vlc-pid is for tests: the extension can't know VLC's process id.
+            return Run(sessionPath, uint.TryParse(ArgValue(args, "--vlc-pid"), out var pid) ? pid : 0);
         }
         catch (Exception ex)
         {
@@ -47,7 +48,7 @@ internal static class Program
         }
     }
 
-    private static int Run(string sessionPath)
+    private static int Run(string sessionPath, uint vlcPid)
     {
         Log.Info("Session file: " + sessionPath);
         var session = new SessionFile(sessionPath);
@@ -66,7 +67,7 @@ internal static class Program
             return 1;
         }
 
-        using var vlc = VlcTarget.Find(state.Title, state.Name);
+        using var vlc = vlcPid != 0 ? VlcTarget.ForProcess(vlcPid) : VlcTarget.Find(state.Title, state.Name);
         if (vlc == null)
         {
             Log.Error("VLC is not running");
@@ -151,9 +152,10 @@ internal static class Program
                     const int n = 20;
                     for (var i = 0; i < n; i++)
                     {
-                        var t = Thumbnailer.SlotTimeMs(grabber.LengthMs, n, i);
+                        var position = Thumbnailer.SlotPosition(i, n);
+                        var t = (long)(position * grabber.LengthMs);
                         sw.Restart();
-                        using var bmp = grabber.Grab(t, 8000);
+                        using var bmp = grabber.Grab(position, 8000);
                         total += sw.ElapsedMilliseconds;
                         worst = Math.Max(worst, sw.ElapsedMilliseconds);
                         report.AppendLine($"  {TimeSpan.FromMilliseconds(t):hh\\:mm\\:ss\\.fff}: {(bmp == null ? "no frame" : $"{bmp.Width}x{bmp.Height}")} in {sw.ElapsedMilliseconds} ms");

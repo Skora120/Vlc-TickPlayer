@@ -26,9 +26,7 @@ internal sealed class HelperApp : ApplicationContext
 
     private int _ticks;
     private string _uri;
-    private int _wantedSlot = -1;
-    private int _seenVersion = -1;
-    private int _shownSlot = -1;
+    private string _shownKey; // which frame the preview shows: "slot N" or "exact P"
     private Size _imageSize;
     private int _tooltipClearance;
 
@@ -88,7 +86,7 @@ internal sealed class HelperApp : ApplicationContext
         _uri = state.Uri;
         Log.Info("Media: " + (string.IsNullOrEmpty(_uri) ? "(none)" : _uri));
         _thumbs.SetMedia(_uri);
-        _wantedSlot = _shownSlot = -1;
+        _shownKey = null;
     }
 
     private void UpdatePreview()
@@ -99,6 +97,8 @@ internal sealed class HelperApp : ApplicationContext
             !_locator.TryGet(root, out var bar) ||
             pt.X < bar.Left || pt.X >= bar.Right || pt.Y < bar.Top - 2 || pt.Y > bar.Bottom + 2)
         {
+            if (_preview.IsShown)
+                _thumbs.CancelExact();
             _preview.HidePreview();
             return;
         }
@@ -114,37 +114,36 @@ internal sealed class HelperApp : ApplicationContext
             return;
         }
 
-        // Same mapping as VLC (SeekSlider::getValueFromXPos). VLC asks the
-        // style for the handle length without passing the widget, so it gets
-        // the native Windows metric: 11 px at 100%, scaled like the bar,
-        // which is 18 px tall at 100%.
-        var handle = (int)Math.Round(11.0 * bar.Height / 18.0);
-        var fraction = (pt.X - bar.Left - handle / 2) / (double)Math.Max(1, bar.Width - handle);
-        fraction = Math.Max(0, Math.Min(1, fraction));
-        var slot = Math.Min(slotCount - 1, (int)(fraction * slotCount));
-
-        if (slot != _wantedSlot || _thumbs.Version != _seenVersion)
+        // Ask for the exact frame VLC would jump to, and meanwhile show
+        // whichever finished frame is closest: the last exact one or a slot.
+        var position = ClickPosition(pt.X, bar);
+        _thumbs.RequestExact(position);
+        var slot = _thumbs.NearestSlot(Math.Min(slotCount - 1, (int)(position * slotCount)));
+        string key = null;
+        if (slot >= 0)
+            key = "slot " + slot;
+        if (_thumbs.TryGetExact(out var exactPosition) &&
+            (slot < 0 || Math.Abs(exactPosition - position) <= Math.Abs(Thumbnailer.SlotPosition(slot, slotCount) - position)))
         {
-            _wantedSlot = slot;
-            _seenVersion = _thumbs.Version;
-            var bmp = _thumbs.GetNearest(slot, out var shown);
-            if (bmp == null)
+            key = "exact " + exactPosition;
+        }
+
+        if (key == null)
+        {
+            ShowLoading(pt, bar);
+            return;
+        }
+        if (key != _shownKey)
+        {
+            var bmp = key.StartsWith("exact") ? _thumbs.LoadExact() : _thumbs.LoadSlot(slot);
+            if (bmp != null)
             {
-                _shownSlot = -1;
-            }
-            else if (shown == _shownSlot)
-            {
-                bmp.Dispose(); // already on screen
-            }
-            else
-            {
-                _shownSlot = shown;
+                _shownKey = key;
                 _imageSize = bmp.Size;
                 _preview.SetImage(bmp);
             }
         }
-
-        if (_shownSlot < 0)
+        if (_shownKey == null)
         {
             ShowLoading(pt, bar);
             return;
@@ -155,10 +154,32 @@ internal sealed class HelperApp : ApplicationContext
         Place(pt, bar, scale, (int)Math.Round(_imageSize.Width * fit), (int)Math.Round(_imageSize.Height * fit));
     }
 
+    /// <summary>
+    /// The position (0..1) VLC seeks to when the seek bar is clicked at
+    /// screen x, as computed by SeekSlider::getValueFromXPos: the slider runs
+    /// from 0 to 10000 and the handle length is subtracted. VLC asks the style
+    /// for that length without passing the widget, so it gets the native
+    /// Windows metric: 11 px at 100% scaling, where the bar is 18 px tall.
+    /// </summary>
+    private static double ClickPosition(int x, Native.RECT bar)
+    {
+        const int sliderMax = 10000;
+        var handle = (int)Math.Round(11.0 * bar.Height / 18.0);
+        var pos = x - bar.Left - handle / 2;
+        var span = bar.Width - handle;
+        if (span <= 0 || pos <= 0)
+            return 0;
+        if (pos >= span)
+            return 1;
+        // QStyle::sliderValueFromPosition rounds to the nearest slider step.
+        var value = (2L * sliderMax * pos + span) / (2L * span);
+        return value / (double)sliderMax;
+    }
+
     private void ShowLoading(Native.POINT pt, Native.RECT bar)
     {
         var scale = Native.ScaleAt(pt);
-        _shownSlot = -1;
+        _shownKey = null;
         _preview.SetLoading();
         Place(pt, bar, scale, (int)(BoxWidth * scale), (int)(BoxWidth * scale * 9 / 16));
     }

@@ -107,10 +107,12 @@ pure VLC extension cannot do this. TickPlayer has two parts:
    - finds VLC's seek bar with Windows UI Automation. VLC's Qt interface
      exposes its sliders to accessibility tools, and the seek bar is the
      widest one;
-   - converts the mouse position to a time with the same formula VLC uses
-     for its own time tooltip;
-   - decodes frames with a hidden libVLC player loaded from your VLC
-     installation, seeking to exact times;
+   - converts the mouse position to the exact position VLC jumps to when
+     you click there, with the same formula VLC's seek bar uses;
+   - decodes that frame with a hidden libVLC player loaded from your VLC
+     installation, so the preview is the frame you get by clicking. Until
+     it's ready (usually 50–300 ms), the nearest of a set of pre-made
+     thumbnails is shown;
    - shows them in a borderless window that never takes focus or clicks.
 
    It exits when TickPlayer is turned off or VLC closes.

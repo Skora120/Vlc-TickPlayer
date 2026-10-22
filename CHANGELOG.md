@@ -5,12 +5,13 @@
 First release.
 
 - Thumbnail preview when hovering over VLC's seek bar, in windowed and
-  fullscreen mode.
+  fullscreen mode. The preview is the exact frame VLC jumps to when that
+  spot is clicked; pre-made thumbnails fill in while it is decoded.
 - On by default: a Lua interface script starts TickPlayer with VLC. The
   installer enables it (with a backup of VLC's settings); View → TickPlayer
   can turn it off for the session or for good.
-- Seek bar found with Windows UI Automation; mouse position mapped to time
-  with VLC's own formula.
+- Seek bar found with Windows UI Automation; mouse position mapped to a
+  seek position with VLC's own formula.
 - Thumbnails decoded with the installed VLC's libVLC (no FFmpeg or Python),
   cached under `%LOCALAPPDATA%\TickPlayer`.
 - Per-user install and uninstall scripts; 64-bit and 32-bit helpers.

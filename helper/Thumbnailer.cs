@@ -10,11 +10,15 @@ using System.Threading;
 namespace TickPlayer;
 
 /// <summary>
-/// Produces seekbar thumbnails for the current video on a background thread.
-/// The video is split into slots (at most <see cref="MaxSlots"/>, at least
-/// <see cref="MinSlotMs"/> apart). The slot under the mouse is generated first;
-/// in idle time a coarse-to-fine subset is generated so most of the bar is
-/// covered quickly. Everything is cached on disk.
+/// Produces seek bar previews for the current video on a background thread.
+///
+/// The frame for the exact position under the mouse is always made first
+/// (see <see cref="RequestExact"/>), so the preview shows what VLC jumps to
+/// when that spot is clicked. While it is being made, the nearest slot is
+/// shown: the video is split into slots (at most <see cref="MaxSlots"/>, at
+/// least <see cref="MinSlotMs"/> apart), and in idle time a coarse-to-fine
+/// subset of them is generated so the whole bar has a rough preview quickly.
+/// Exact frames also fill their slot. Slots are cached on disk.
 /// </summary>
 internal sealed class Thumbnailer : IDisposable
 {
@@ -22,7 +26,7 @@ internal sealed class Thumbnailer : IDisposable
     private const long MinSlotMs = 2000;
     private const int BackgroundSlots = 120;   // slots generated without hovering
     private const int GrabTimeoutMs = 8000;
-    private const int SlowGrabMs = 700;        // average above this switches to keyframe seeking
+    private const int SlowGrabMs = 1500;       // average above this switches to keyframe seeking
 
     private readonly int _boxWidth;
     private readonly int _boxHeight;
@@ -36,14 +40,17 @@ internal sealed class Thumbnailer : IDisposable
     private string _requestedUri;
     private int _requestedVersion;
     private Job _job;
-    private int _prioritySlot = -1;
+    private double _exactWanted = -1;   // position to make an exact frame for, or -1
+    private double _exactDone = -1;     // last position attempted
+    private byte[] _exactJpeg;
+    private double _exactPosition = -1; // position of _exactJpeg
     private bool _disposed;
 
     private sealed class Job
     {
         public string Uri;
         public long LengthMs;
-        public byte[][] Thumbs;
+        public byte[][] Thumbs; // null: not made yet; empty: failed
         public ThumbnailCache Cache;
         public int[] BackgroundOrder;
     }
@@ -58,7 +65,7 @@ internal sealed class Thumbnailer : IDisposable
         _worker.Start();
     }
 
-    /// <summary>Incremented whenever a thumbnail is added; lets the UI notice new images.</summary>
+    /// <summary>Incremented whenever a frame is added; lets the UI notice new images.</summary>
     public int Version { get; private set; }
 
     /// <summary>Why previews are unavailable for the current media, or null.</summary>
@@ -73,7 +80,8 @@ internal sealed class Thumbnailer : IDisposable
             _requestedUri = uri;
             _requestedVersion++;
             _job = null;
-            _prioritySlot = -1;
+            _exactWanted = _exactDone = _exactPosition = -1;
+            _exactJpeg = null;
             Problem = null;
         }
         _wake.Set();
@@ -90,35 +98,88 @@ internal sealed class Thumbnailer : IDisposable
         }
     }
 
-    /// <summary>
-    /// Returns the thumbnail for <paramref name="slot"/> if it exists, otherwise
-    /// the nearest one, and asks for the exact slot to be generated next.
-    /// Null if nothing is ready. The caller owns the returned bitmap.
-    /// </summary>
-    public Bitmap GetNearest(int slot, out int shownSlot)
+    public static double SlotPosition(int slot, int slotCount) => (slot + 0.5) / slotCount;
+
+    /// <summary>Asks for the frame at exactly this position (0..1) to be made next.</summary>
+    public void RequestExact(double position)
     {
-        byte[] jpeg = null;
-        shownSlot = -1;
+        lock (_gate)
+        {
+            if (position == _exactWanted)
+                return;
+            _exactWanted = position;
+        }
+        _wake.Set();
+    }
+
+    /// <summary>Stops making exact frames (the mouse left the seek bar).</summary>
+    public void CancelExact()
+    {
+        lock (_gate)
+            _exactWanted = -1;
+    }
+
+    /// <summary>Position of the latest exact frame, if there is one.</summary>
+    public bool TryGetExact(out double position)
+    {
+        lock (_gate)
+        {
+            position = _exactPosition;
+            return _exactJpeg != null;
+        }
+    }
+
+    /// <summary>The finished slot nearest to <paramref name="slot"/>, or -1 if none.</summary>
+    public int NearestSlot(int slot)
+    {
         lock (_gate)
         {
             var thumbs = _job?.Thumbs;
             if (thumbs == null)
-                return null;
+                return -1;
             slot = Math.Max(0, Math.Min(slot, thumbs.Length - 1));
-            if (thumbs[slot] == null && _prioritySlot != slot)
-            {
-                _prioritySlot = slot;
-                _wake.Set();
-            }
-            for (var d = 0; d < thumbs.Length && jpeg == null; d++)
+            for (var d = 0; d < thumbs.Length; d++)
             {
                 if (slot - d >= 0 && thumbs[slot - d] is { Length: > 0 })
-                    (jpeg, shownSlot) = (thumbs[slot - d], slot - d);
-                else if (slot + d < thumbs.Length && thumbs[slot + d] is { Length: > 0 })
-                    (jpeg, shownSlot) = (thumbs[slot + d], slot + d);
+                    return slot - d;
+                if (slot + d < thumbs.Length && thumbs[slot + d] is { Length: > 0 })
+                    return slot + d;
+            }
+            return -1;
+        }
+    }
+
+    /// <summary>Decodes a finished slot's image. The caller owns the bitmap.</summary>
+    public Bitmap LoadSlot(int slot)
+    {
+        byte[] jpeg;
+        lock (_gate)
+            jpeg = _job?.Thumbs is { } t && slot >= 0 && slot < t.Length ? t[slot] : null;
+        var bmp = Decode(jpeg);
+        if (bmp == null && jpeg is { Length: > 0 })
+        {
+            // A damaged cache file; drop it so the slot is made again.
+            lock (_gate)
+            {
+                if (_job?.Thumbs is { } t && slot < t.Length && t[slot] == jpeg)
+                    t[slot] = null;
             }
         }
-        if (jpeg == null)
+        return bmp;
+    }
+
+    /// <summary>Decodes the latest exact frame. The caller owns the bitmap.</summary>
+    public Bitmap LoadExact()
+    {
+        byte[] jpeg;
+        lock (_gate)
+            jpeg = _exactJpeg;
+        return Decode(jpeg);
+    }
+
+    private static Bitmap Decode(byte[] jpeg)
+    {
+        if (jpeg is not { Length: > 0 })
             return null;
         try
         {
@@ -128,13 +189,6 @@ internal sealed class Thumbnailer : IDisposable
         }
         catch (ArgumentException)
         {
-            // A damaged cache file; drop it so the slot is generated again.
-            lock (_gate)
-            {
-                if (_job?.Thumbs is { } thumbs && shownSlot < thumbs.Length && thumbs[shownSlot] == jpeg)
-                    thumbs[shownSlot] = null;
-            }
-            shownSlot = -1;
             return null;
         }
     }
@@ -163,7 +217,8 @@ internal sealed class Thumbnailer : IDisposable
         while (true)
         {
             string uri;
-            int version, slot;
+            int version, slot = -1;
+            double exact = -1;
             Job job;
             lock (_gate)
             {
@@ -172,9 +227,13 @@ internal sealed class Thumbnailer : IDisposable
                 uri = _requestedUri;
                 version = _requestedVersion;
                 job = _job;
-                slot = job == null ? -1 : NextSlot(job);
-                if (slot == _prioritySlot)
-                    _prioritySlot = -1;
+                if (job != null)
+                {
+                    if (_exactWanted >= 0 && _exactWanted != _exactDone)
+                        exact = _exactWanted;
+                    else
+                        slot = NextBackgroundSlot(job);
+                }
             }
 
             if (version != openedVersion)
@@ -189,30 +248,52 @@ internal sealed class Thumbnailer : IDisposable
                 continue;
             }
 
-            if (grabber == null || job == null || slot < 0)
+            if (grabber == null || job == null || (exact < 0 && slot < 0))
             {
                 _wake.WaitOne(1000);
                 continue;
             }
 
+            var position = exact >= 0 ? exact : SlotPosition(slot, job.Thumbs.Length);
             var sw = Stopwatch.StartNew();
-            using var bmp = grabber.Grab(SlotTimeMs(job, slot), GrabTimeoutMs);
+            using var bmp = grabber.Grab(position, GrabTimeoutMs);
             grabTimes.Add(sw.ElapsedMilliseconds);
             var jpeg = bmp == null ? null : Encode(bmp);
 
+            var cacheSlot = -1;
             lock (_gate)
             {
                 if (_job != job)
                     continue;
-                // An empty array marks a failed slot so it is not retried forever.
-                job.Thumbs[slot] = jpeg ?? Array.Empty<byte>();
-                if (jpeg != null)
-                    Version++;
+                if (exact >= 0)
+                {
+                    _exactDone = exact;
+                    if (jpeg != null)
+                    {
+                        _exactJpeg = jpeg;
+                        _exactPosition = exact;
+                        Version++;
+                        // Use it as its slot's preview too, if that slot is still empty.
+                        var s = Math.Min(job.Thumbs.Length - 1, (int)(exact * job.Thumbs.Length));
+                        if (job.Thumbs[s] is not { Length: > 0 })
+                            job.Thumbs[cacheSlot = s] = jpeg;
+                    }
+                }
+                else
+                {
+                    // An empty array marks a failed slot so it is not retried forever.
+                    job.Thumbs[slot] = jpeg ?? Array.Empty<byte>();
+                    if (jpeg != null)
+                    {
+                        Version++;
+                        cacheSlot = slot;
+                    }
+                }
             }
-            if (jpeg != null)
-                job.Cache?.Save(slot, jpeg);
-            else
-                Log.Warn($"No frame for slot {slot} at {SlotTimeMs(job, slot)} ms");
+            if (cacheSlot >= 0)
+                job.Cache?.Save(cacheSlot, jpeg);
+            if (jpeg == null)
+                Log.Warn($"No frame at position {position:0.0000}");
 
             if (!fastSeek && grabTimes.Count == 8 && grabTimes.Average() > SlowGrabMs)
             {
@@ -293,11 +374,9 @@ internal sealed class Thumbnailer : IDisposable
         return grabber;
     }
 
-    /// <summary>The hovered slot if it is missing, else the next background slot. Call under _gate.</summary>
-    private int NextSlot(Job job)
+    /// <summary>The next background slot still to make, or -1. Call under _gate.</summary>
+    private static int NextBackgroundSlot(Job job)
     {
-        if (_prioritySlot >= 0 && _prioritySlot < job.Thumbs.Length && job.Thumbs[_prioritySlot] == null)
-            return _prioritySlot;
         foreach (var s in job.BackgroundOrder)
         {
             if (job.Thumbs[s] == null)
@@ -305,11 +384,6 @@ internal sealed class Thumbnailer : IDisposable
         }
         return -1;
     }
-
-    public static long SlotTimeMs(long lengthMs, int slotCount, int slot) =>
-        (long)((slot + 0.5) * lengthMs / slotCount);
-
-    private static long SlotTimeMs(Job job, int slot) => SlotTimeMs(job.LengthMs, job.Thumbs.Length, slot);
 
     /// <summary>Slot indices ordered so that early entries spread evenly over the whole video.</summary>
     private static IEnumerable<int> CoarseToFine(int count)

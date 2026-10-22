@@ -134,8 +134,12 @@ internal sealed class FrameGrabber : IDisposable
         return true;
     }
 
-    /// <summary>Seeks to <paramref name="timeMs"/> and returns the decoded frame, or null.</summary>
-    public Bitmap Grab(long timeMs, int timeoutMs)
+    /// <summary>
+    /// Seeks to a position (0..1) and returns the decoded frame, or null.
+    /// VLC's seek bar seeks by position too, so this is the frame VLC jumps
+    /// to when that spot is clicked.
+    /// </summary>
+    public Bitmap Grab(double position, int timeoutMs)
     {
         var state = LibVlc.libvlc_media_player_get_state(_player);
         if (state is LibVlc.State.Ended or LibVlc.State.Stopped or LibVlc.State.Error)
@@ -147,14 +151,17 @@ internal sealed class FrameGrabber : IDisposable
 
         // Seeking into the last few seconds can leave the demuxer at end of
         // file, after which later seeks are ignored. Stay clear of the end.
-        timeMs = Math.Max(0, Math.Min(timeMs, LengthMs - EndMarginMs));
+        var max = 1.0 - EndMarginMs / (double)LengthMs;
+        var target = (float)Math.Max(0, Math.Min(position, max));
 
         // After a seek VLC first shows the old picture again, then the new one
-        // once it is decoded. So wait for the picture to change; if it stays
-        // the same for a while, the new frame simply looks identical.
+        // once it is decoded. So wait for the picture to change. If it stays
+        // the same well past the usual decode time for this file, the new
+        // frame simply looks identical (a still or black scene).
+        var sameFrameWaitMs = (int)Math.Max(MinSameFrameWaitMs, Math.Min(MaxSameFrameWaitMs, 4 * _typicalDecodeMs));
         var before = Settle();
         var oldHash = HashFrame();
-        LibVlc.libvlc_media_player_set_time(_player, timeMs);
+        LibVlc.libvlc_media_player_set_position(_player, target);
 
         var sw = Stopwatch.StartNew();
         var seen = before;
@@ -170,11 +177,14 @@ internal sealed class FrameGrabber : IDisposable
                 if (firstFrameAt < 0)
                     firstFrameAt = sw.ElapsedMilliseconds;
                 if (HashFrame() != oldHash)
+                {
+                    _typicalDecodeMs = 0.8 * _typicalDecodeMs + 0.2 * sw.ElapsedMilliseconds;
                     return CopyFrame();
+                }
             }
-            if (firstFrameAt >= 0 && sw.ElapsedMilliseconds - firstFrameAt > SameFrameWaitMs)
+            if (firstFrameAt >= 0 && sw.ElapsedMilliseconds - firstFrameAt > sameFrameWaitMs)
                 return CopyFrame();
-            if (firstFrameAt < 0 && !stepped && sw.ElapsedMilliseconds > 400)
+            if (firstFrameAt < 0 && !stepped && sw.ElapsedMilliseconds > Math.Max(400, sameFrameWaitMs))
             {
                 // Nothing rendered after the seek: step one frame to force a decode.
                 LibVlc.libvlc_media_player_next_frame(_player);
@@ -184,8 +194,12 @@ internal sealed class FrameGrabber : IDisposable
         return firstFrameAt >= 0 ? CopyFrame() : null;
     }
 
-    /// <summary>How long to wait for a different picture before accepting an identical one.</summary>
-    private const int SameFrameWaitMs = 250;
+    // Bounds for how long to wait for a different picture before accepting an identical one.
+    private const int MinSameFrameWaitMs = 250;
+    private const int MaxSameFrameWaitMs = 2500;
+
+    /// <summary>Running average of how long seeks in this file take to show the new frame.</summary>
+    private double _typicalDecodeMs = 100;
 
     private long EndMarginMs => Math.Min(5000, LengthMs / 20);
 

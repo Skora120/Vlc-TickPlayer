@@ -68,7 +68,12 @@ internal sealed class VlcTarget : IDisposable
                 chosen = pids.OrderByDescending(StartTime).First();
             Log.Info($"{pids.Count} VLC processes running; chose {chosen}");
         }
+        return ForProcess(chosen);
+    }
 
+    /// <summary>A specific VLC process, or null if it can't be opened.</summary>
+    public static VlcTarget ForProcess(uint chosen)
+    {
         var handle = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION | Native.SYNCHRONIZE, false, chosen);
         if (handle == IntPtr.Zero)
             return null;
