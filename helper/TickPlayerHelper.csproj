@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TickPlayer helper: a small Windows app started by the VLC extension.
+    Targets .NET Framework 4.8, which ships with Windows 10 (1903+) and 11,
+    so users never need to install a runtime.
+
+    Build both flavours with scripts/build.ps1:
+      -p:Platform=x64  -> TickPlayerHelper.exe      (64-bit VLC)
+      -p:Platform=x86  -> TickPlayerHelper-x86.exe  (32-bit VLC)
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>TickPlayer</RootNamespace>
+    <AssemblyName>TickPlayerHelper</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;x86</Platforms>
+    <PlatformTarget>$(Platform)</PlatformTarget>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>embedded</DebugType>
+
+    <Version>1.0.0</Version>
+    <Product>TickPlayer</Product>
+    <Description>Seekbar thumbnail previews for VLC media player</Description>
+    <Copyright>Copyright (c) 2026 Skora120</Copyright>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Platform)' == 'x86'">
+    <AssemblyName>TickPlayerHelper-x86</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+    <Reference Include="WindowsBase" />
+  </ItemGroup>
+
+</Project>
