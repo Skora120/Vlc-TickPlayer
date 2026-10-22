@@ -47,7 +47,19 @@ Copy-Item (Join-Path $root 'helper\bin\x86\Release\TickPlayerHelper-x86.exe') $h
 Copy-Item (Join-Path $root 'scripts\install.cmd'), (Join-Path $root 'scripts\uninstall.cmd'), (Join-Path $root 'scripts\tickplayer-autostart.ps1') $stage
 Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE.txt')
 
+# Zip by hand: Windows PowerShell's Compress-Archive stores paths with
+# backslashes, which the zip format doesn't allow and some tools mishandle.
 $zip = Join-Path $dist "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
+try {
+    Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {
+        $entry = $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
+        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $_.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal)
+    }
+}
+finally {
+    $archive.Dispose()
+}
 Write-Host "Created $zip"

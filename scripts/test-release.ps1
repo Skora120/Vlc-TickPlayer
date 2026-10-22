@@ -62,8 +62,11 @@ Assert (@($settings -match '^extraintf=(.*:)?luaintf(:.*)?$').Count -eq 1) 'vlcr
 Write-Host "== Auto-start in a headless VLC"
 $log = Join-Path $env:LOCALAPPDATA 'TickPlayer\helper.log'
 if (Test-Path $log) { Remove-Item $log }
+# The user's settings may loop the playlist or pause at the end, and then
+# VLC never exits, so turn those off for this run.
 $vlc = Start-Process (Join-Path $VlcDir 'vlc.exe') -PassThru -ArgumentList `
-    '-I', 'dummy', '--dummy-quiet', '--vout=dummy', '--aout=dummy', '--stop-time=8', '--play-and-exit', "`"$sample`""
+    '-I', 'dummy', '--dummy-quiet', '--vout=dummy', '--aout=dummy', '--no-loop', '--no-repeat', '--no-random',
+    '--no-play-and-pause', '--stop-time=8', '--play-and-exit', "`"$sample`""
 if (-not $vlc.WaitForExit(60000)) {
     $vlc.Kill()
     throw 'FAILED: VLC did not exit'
