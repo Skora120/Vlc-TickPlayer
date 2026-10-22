@@ -79,7 +79,11 @@ if (Test-Path $log) { Get-Content $log | ForEach-Object { Write-Host "  $_" } }
 Assert (Test-Path $log) 'the auto-start script launched the helper'
 Assert (Select-String -LiteralPath $log -Pattern 'Media: file:' -Quiet) 'the helper received the playing file'
 Assert (Select-String -LiteralPath $log -Pattern 'Opened in' -Quiet) 'the helper opened the video with libVLC'
-Assert (Select-String -LiteralPath $log -Pattern 'VLC exited' -Quiet) 'the helper exited with VLC'
+# The helper stops either because it sees VLC's process end ("VLC exited") or
+# because the auto-start script says active=0 while VLC shuts down ("Turned
+# off in VLC"), whichever comes first. Both are correct.
+Assert (Select-String -LiteralPath $log -Pattern 'Stopped' -Quiet) 'the helper stopped when VLC closed'
+Assert (-not (Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($helperName)) -ErrorAction SilentlyContinue)) 'no helper process left running'
 
 Write-Host "== uninstall.cmd"
 cmd /c "`"$Release\uninstall.cmd`" < nul" | ForEach-Object { Write-Host "  $_" }

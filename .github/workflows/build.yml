@@ -20,9 +20,9 @@ jobs:
     outputs:
       version: ${{ steps.package.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
 
@@ -34,7 +34,7 @@ jobs:
           $zip = Get-Item dist/TickPlayer-*.zip
           "version=$($zip.BaseName -replace '^TickPlayer-', '')" >> $env:GITHUB_OUTPUT
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release
           path: dist/*.zip
@@ -51,9 +51,9 @@ jobs:
         arch: [x64, x86]
     name: test (${{ matrix.arch }} VLC)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release
           path: dist
@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-${{ matrix.arch }}
           path: |
@@ -89,9 +89,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release
           path: dist
