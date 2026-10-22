@@ -27,6 +27,7 @@ internal sealed class Thumbnailer : IDisposable
     private const int BackgroundSlots = 120;   // slots generated without hovering
     private const int GrabTimeoutMs = 8000;
     private const int SlowGrabMs = 1500;       // average above this switches to keyframe seeking
+    private const int HoverPauseMs = 1500;     // no background work this long after an exact request
 
     private readonly int _boxWidth;
     private readonly int _boxHeight;
@@ -44,6 +45,7 @@ internal sealed class Thumbnailer : IDisposable
     private double _exactDone = -1;     // last position attempted
     private byte[] _exactJpeg;
     private double _exactPosition = -1; // position of _exactJpeg
+    private int _exactRequestedAt;      // Environment.TickCount of the last exact request
     private bool _disposed;
 
     private sealed class Job
@@ -105,6 +107,7 @@ internal sealed class Thumbnailer : IDisposable
     {
         lock (_gate)
         {
+            _exactRequestedAt = Environment.TickCount;
             if (position == _exactWanted)
                 return;
             _exactWanted = position;
@@ -169,11 +172,14 @@ internal sealed class Thumbnailer : IDisposable
     }
 
     /// <summary>Decodes the latest exact frame. The caller owns the bitmap.</summary>
-    public Bitmap LoadExact()
+    public Bitmap LoadExact(out double position)
     {
         byte[] jpeg;
         lock (_gate)
+        {
             jpeg = _exactJpeg;
+            position = _exactPosition;
+        }
         return Decode(jpeg);
     }
 
@@ -231,8 +237,8 @@ internal sealed class Thumbnailer : IDisposable
                 {
                     if (_exactWanted >= 0 && _exactWanted != _exactDone)
                         exact = _exactWanted;
-                    else
-                        slot = NextBackgroundSlot(job);
+                    else if (unchecked(Environment.TickCount - _exactRequestedAt) > HoverPauseMs)
+                        slot = NextBackgroundSlot(job); // only while not hovering, so exact frames never wait
                 }
             }
 

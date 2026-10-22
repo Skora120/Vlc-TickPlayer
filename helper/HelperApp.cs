@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -16,6 +17,10 @@ internal sealed class HelperApp : ApplicationContext
     private const int BoxHeight = 144;
     private const int TickMs = 15;
     private const int SessionPollTicks = 16;
+    // How long to wait for the exact frame before showing a dimmed stand-in.
+    private const int GraceMs = 250;
+    // A frame this close to the hovered time counts as exact.
+    private const double CloseEnoughMs = 1000;
 
     private readonly VlcTarget _vlc;
     private readonly SessionFile _session;
@@ -24,9 +29,14 @@ internal sealed class HelperApp : ApplicationContext
     private readonly PreviewWindow _preview = new();
     private readonly Timer _timer;
 
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
     private int _ticks;
     private string _uri;
-    private string _shownKey; // which frame the preview shows: "slot N" or "exact P"
+    private double _target = -1;      // hovered position
+    private long _targetSince;        // _clock time when the mouse reached it
+    private string _shownKey;         // which frame the preview shows: "slot N" or "exact P"
+    private double _shownPosition;    // its position
+    private bool _shownDimmed;
     private Size _imageSize;
     private int _tooltipClearance;
 
@@ -100,10 +110,11 @@ internal sealed class HelperApp : ApplicationContext
             if (_preview.IsShown)
                 _thumbs.CancelExact();
             _preview.HidePreview();
+            _shownKey = null; // a stale image must not reappear when the mouse comes back
             return;
         }
 
-        if (!_thumbs.TryGetMedia(out _, out var slotCount))
+        if (!_thumbs.TryGetMedia(out var lengthMs, out var slotCount))
         {
             if (_thumbs.Problem != null)
             {
@@ -114,41 +125,92 @@ internal sealed class HelperApp : ApplicationContext
             return;
         }
 
-        // Ask for the exact frame VLC would jump to, and meanwhile show
-        // whichever finished frame is closest: the last exact one or a slot.
+        // Ask for the exact frame VLC would jump to.
         var position = ClickPosition(pt.X, bar);
-        _thumbs.RequestExact(position);
-        var slot = _thumbs.NearestSlot(Math.Min(slotCount - 1, (int)(position * slotCount)));
-        string key = null;
-        if (slot >= 0)
-            key = "slot " + slot;
-        if (_thumbs.TryGetExact(out var exactPosition) &&
-            (slot < 0 || Math.Abs(exactPosition - position) <= Math.Abs(Thumbnailer.SlotPosition(slot, slotCount) - position)))
+        var now = _clock.ElapsedMilliseconds;
+        if (position != _target)
         {
-            key = "exact " + exactPosition;
+            _target = position;
+            _targetSince = now;
+        }
+        _thumbs.RequestExact(position);
+
+        // Candidates, by distance from the target: the latest exact frame
+        // (made for this or an earlier mouse position) and the nearest slot.
+        double DistanceMs(double p) => Math.Abs(p - position) * lengthMs;
+        var hasExact = _thumbs.TryGetExact(out var exactPosition);
+        var exactMs = hasExact ? DistanceMs(exactPosition) : double.MaxValue;
+        var slot = _thumbs.NearestSlot(Math.Min(slotCount - 1, (int)(position * slotCount)));
+        var slotMs = slot >= 0 ? DistanceMs(Thumbnailer.SlotPosition(slot, slotCount)) : double.MaxValue;
+        var shownMs = _shownKey != null ? DistanceMs(_shownPosition) : double.MaxValue;
+
+        bool useExact, dimmed;
+        if (Math.Min(exactMs, slotMs) <= CloseEnoughMs)
+        {
+            // A frame at (or right next to) the target.
+            useExact = exactMs <= slotMs;
+            dimmed = false;
+        }
+        else if (now - _targetSince < GraceMs)
+        {
+            // The exact frame is usually moments away, so don't flash a
+            // far-off stand-in. When nothing is on screen yet, wait. Else keep
+            // what is shown, but while the mouse moves, let newer exact frames
+            // (from positions it just passed) replace older ones.
+            if (_shownKey == null)
+                return;
+            if (hasExact && exactMs < shownMs)
+            {
+                useExact = true;
+                dimmed = false;
+            }
+            else
+            {
+                Place(pt, bar);
+                return;
+            }
+        }
+        else
+        {
+            // Taking longer: show the closest frame, dimmed, until the exact one arrives.
+            if (!hasExact && slot < 0)
+            {
+                ShowLoading(pt, bar);
+                return;
+            }
+            useExact = exactMs <= slotMs;
+            dimmed = true;
         }
 
-        if (key == null)
-        {
-            ShowLoading(pt, bar);
-            return;
-        }
+        var key = useExact ? $"exact {exactPosition}" : $"slot {slot}";
         if (key != _shownKey)
         {
-            var bmp = key.StartsWith("exact") ? _thumbs.LoadExact() : _thumbs.LoadSlot(slot);
+            var bmp = useExact ? _thumbs.LoadExact(out exactPosition) : _thumbs.LoadSlot(slot);
             if (bmp != null)
             {
-                _shownKey = key;
+                _shownKey = useExact ? $"exact {exactPosition}" : key;
+                _shownPosition = useExact ? exactPosition : Thumbnailer.SlotPosition(slot, slotCount);
+                _shownDimmed = dimmed;
                 _imageSize = bmp.Size;
-                _preview.SetImage(bmp);
+                _preview.SetImage(bmp, dimmed);
             }
+        }
+        else if (dimmed != _shownDimmed)
+        {
+            _shownDimmed = dimmed;
+            _preview.SetDimmed(dimmed);
         }
         if (_shownKey == null)
         {
             ShowLoading(pt, bar);
             return;
         }
+        Place(pt, bar);
+    }
 
+    /// <summary>Positions the preview for the current image.</summary>
+    private void Place(Native.POINT pt, Native.RECT bar)
+    {
         var scale = Native.ScaleAt(pt);
         var fit = Math.Min(BoxWidth * scale / _imageSize.Width, BoxHeight * scale / _imageSize.Height);
         Place(pt, bar, scale, (int)Math.Round(_imageSize.Width * fit), (int)Math.Round(_imageSize.Height * fit));

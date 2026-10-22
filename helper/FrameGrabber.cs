@@ -54,6 +54,7 @@ internal sealed class FrameGrabber : IDisposable
             "--no-media-library",
             "--no-lua",
             "--avcodec-hw=none",        // software decoding: reliable with memory output
+            "--avcodec-skiploopfilter=4", // skip deblocking: ~30% faster seeks, invisible at thumbnail size
             "--quiet");
     }
 
@@ -227,7 +228,7 @@ internal sealed class FrameGrabber : IDisposable
     /// <summary>Waits until no frame has been shown for a moment; returns the frame count.</summary>
     private int Settle()
     {
-        const int quietMs = 40, maxMs = 250;
+        const int quietMs = 20, maxMs = 250;
         var sw = Stopwatch.StartNew();
         var count = Volatile.Read(ref _frameCount);
         var quietSince = sw.ElapsedMilliseconds;

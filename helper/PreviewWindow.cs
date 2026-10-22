@@ -13,6 +13,7 @@ namespace TickPlayer;
 internal sealed class PreviewWindow : Form
 {
     private Bitmap _image;
+    private bool _dimmed;
     private bool _loading;
     private bool _shown;
     private Rectangle _bounds;
@@ -69,14 +70,28 @@ internal sealed class PreviewWindow : Form
         base.WndProc(ref m);
     }
 
-    /// <summary>Displays <paramref name="image"/>, taking ownership of it.</summary>
-    public void SetImage(Bitmap image)
+    /// <summary>
+    /// Displays <paramref name="image"/>, taking ownership of it. A dimmed
+    /// image is a stand-in shown while the exact frame is still being made.
+    /// </summary>
+    public void SetImage(Bitmap image, bool dimmed)
     {
-        if (ReferenceEquals(image, _image))
+        if (ReferenceEquals(image, _image) && dimmed == _dimmed)
             return;
-        _image?.Dispose();
+        if (!ReferenceEquals(image, _image))
+            _image?.Dispose();
         _image = image;
+        _dimmed = dimmed;
         _loading = false;
+        Invalidate();
+    }
+
+    /// <summary>Changes only whether the current image is dimmed.</summary>
+    public void SetDimmed(bool dimmed)
+    {
+        if (dimmed == _dimmed)
+            return;
+        _dimmed = dimmed;
         Invalidate();
     }
 
@@ -119,6 +134,11 @@ internal sealed class PreviewWindow : Form
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             g.DrawImage(_image, client);
+            if (_dimmed)
+            {
+                using var shade = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
+                g.FillRectangle(shade, client);
+            }
         }
         else if (_loading)
         {
