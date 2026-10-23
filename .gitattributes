@@ -1,0 +1,10 @@
+* text=auto
+
+# Batch files misbehave with LF line endings.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+*.exe binary
+*.png binary
+*.jpg binary
