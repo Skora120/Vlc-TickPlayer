@@ -1,7 +1,7 @@
 --[[
   TickPlayer shared code, used by the View menu extension
   (lua/extensions/tickplayer.lua) and the auto-start interface
-  (lua/intf/tickplayer.lua). https://github.com/Skora120/TickPlayer
+  (lua/intf/tickplayer.lua). https://github.com/Skora120/Vlc-TickPlayer
 
   Both start TickPlayerHelper.exe and keep a session file up to date with
   the playing media: key=value lines ending with "end=1", in

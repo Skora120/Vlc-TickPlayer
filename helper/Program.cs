@@ -125,13 +125,15 @@ internal static class Program
     }
 
     /// <summary>
-    /// Developer check: TickPlayerHelper.exe --test-thumbnails &lt;VLC folder&gt; &lt;media URI&gt; &lt;output folder&gt;
+    /// Developer and CI check: TickPlayerHelper.exe --test-thumbnails &lt;VLC folder&gt; &lt;media URI&gt; &lt;output folder&gt;
     /// grabs frames at a few times, saves them as PNGs and writes timings to report.txt.
+    /// Exits with 1 if the media can't be opened or any frame is missing.
     /// </summary>
     private static int TestThumbnails(string vlcDir, string mrl, string outDir)
     {
         Directory.CreateDirectory(outDir);
         var report = new StringBuilder();
+        var passed = false;
         try
         {
             LibVlc.Load(vlcDir);
@@ -145,6 +147,7 @@ internal static class Program
                 if (ok)
                 {
                     long total = 0, worst = 0;
+                    var missing = 0;
                     const int n = 20;
                     for (var i = 0; i < n; i++)
                     {
@@ -154,9 +157,12 @@ internal static class Program
                         total += sw.ElapsedMilliseconds;
                         worst = Math.Max(worst, sw.ElapsedMilliseconds);
                         report.AppendLine($"  {TimeSpan.FromMilliseconds(t):hh\\:mm\\:ss\\.fff}: {(bmp == null ? "no frame" : $"{bmp.Width}x{bmp.Height}")} in {sw.ElapsedMilliseconds} ms");
+                        if (bmp == null)
+                            missing++;
                         bmp?.Save(Path.Combine(outDir, $"{i:D2}.png"), ImageFormat.Png);
                     }
-                    report.AppendLine($"average {total / n} ms, worst {worst} ms");
+                    report.AppendLine($"average {total / n} ms, worst {worst} ms, missing {missing}");
+                    passed = missing == 0;
                 }
             }
             LibVlc.libvlc_release(instance);
@@ -166,6 +172,6 @@ internal static class Program
             report.AppendLine("error: " + ex);
         }
         File.WriteAllText(Path.Combine(outDir, "report.txt"), report.ToString());
-        return 0;
+        return passed ? 0 : 1;
     }
 }

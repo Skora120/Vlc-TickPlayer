@@ -1,5 +1,5 @@
 --[[
-  TickPlayer auto-start - https://github.com/Skora120/TickPlayer
+  TickPlayer auto-start - https://github.com/Skora120/Vlc-TickPlayer
 
   A VLC Lua interface that turns TickPlayer on every time VLC starts, so you
   don't have to use View > TickPlayer. install.cmd enables it by setting, in
